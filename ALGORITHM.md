@@ -38,13 +38,13 @@ A mix window often spans vocals, tonal accompaniment, and percussion at the same
 
 Within each track, additional channels can subtract a scaled version of the first channel's temporal residual. This targets stereo content that shares waveform detail after independently predictable motion has been removed. The first channel supplies the residual for every coupled channel. Their modeled residual bit lengths determine the encoder's gain candidates. The Zstandard core carries the chosen predictor table and the combined lane residual planes. The original Float32 sample words remain recoverable after the inverse transforms.
 
-The linear predictor's history crosses section boundaries inside a block. A seek can still decode any block independently because its history before the first frame is defined as zero. The decoder makes a bounded integer multiply-and-add computation using the stored coefficients. The AVX2 path sums signed 64-bit products and applies the same floor operation as the scalar path. [Predictor experiments](RESEARCH.md#adaptive-prediction-and-joint-residuals)
+The linear predictor's history crosses section boundaries inside a block. A seek can still decode any block independently because its history before the first frame is defined as zero. The decoder makes a bounded integer multiply-and-add computation using the stored coefficients. The AVX2 path sums signed 64-bit products and applies the same floor operation as the scalar path.
 
 ## Long-range exact reuse
 
-The encoder hashes original block PCM to nominate earlier anchors. It verifies equality against reconstructed anchor bytes before emitting a reference. Equal-size repeats require only their index record. Anchors are stored payloads. A reference can span the length of the file and still needs at most two index records and a single payload decode.
+The encoder hashes original block PCM to nominate earlier anchors. It verifies equality against the queued PCM or reconstructed anchor bytes before emitting a reference. Equal-size repeats require only their index record. Anchors are stored payloads. A reference can span the length of the file and still needs at most two index records and a single payload decode.
 
-Exact reuse benefits duplicated, block-aligned material. Its detection granularity is the complete multitrack block. The waveform-similarity experiment in [RESEARCH.md](RESEARCH.md) measures approximate single-lane matches under exact XOR residual coding. The reference library uses exact anchors after accounting for the measured gain and the extra decoding work an approximate reference would require.
+Exact reuse benefits duplicated, block-aligned material. Its detection granularity is the complete multitrack block. [Observations on exact repeats](RESEARCH.md#exact-block-reuse)
 
 ## Access and resource bound
 

@@ -1,6 +1,6 @@
-# JEMA experimental format, revision 1
+# JEMA format, revision 1
 
-The key words **must**, **should**, and **may** describe requirements, recommendations, and permissions. File offsets are measured from byte zero. All multibyte integers are unsigned little-endian unless stated otherwise. Every file offset and the frame count must fit in a signed 64-bit integer. These rules define revision 1. Future experimental revisions may be incompatible.
+JEMA 1.0.0 implements this revision of the binary format. The key words **must**, **should**, and **may** describe requirements, recommendations, and permissions. File offsets are measured from byte zero. All multibyte integers are unsigned little-endian unless stated otherwise. Every file offset and the frame count must fit in a signed 64-bit integer.
 
 ## PCM representation
 

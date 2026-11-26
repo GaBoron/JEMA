@@ -7,7 +7,9 @@ dotnet build src/Jema.Tool -c Release
 dotnet build research/Bench -c Release
 ```
 
-The tool project builds the `Jema` library automatically. It uses System.IO.Hashing for CRC-32 and encoder-side hashing, and ZstdSharp.Port for Zstandard. Both packages declare the MIT license. [System.IO.Hashing](https://www.nuget.org/packages/System.IO.Hashing/8.0.0) · [ZstdSharp.Port](https://www.nuget.org/packages/ZstdSharp.Port/0.8.8)
+The tool project builds the `Jema` library automatically. The portable CLI archive includes the library and its managed dependencies. [Third-party notices](THIRD-PARTY-NOTICES.md)
+
+The public compatibility surface comprises the [revision 1 format](SPECIFICATION.md), public types and members in the `Jema` assembly, and the documented CLI commands and options. The software version is set in `src/Directory.Build.props`.
 
 ## Library usage
 
@@ -30,7 +32,7 @@ DecodeWork work = reader.ReadFrames(0, bytes);
 
 The caller controls stream ownership and must serialize access to each reader and its source. Use separate readers and streams for concurrent access. An encode destination starts empty at file offset zero. It needs read access when exact block references are enabled. Create output in a separate file before replacing stored audio to keep failures from altering an existing file. An encode consumes precisely the declared PCM range. A failed decode may have written part of its destination span.
 
-`EncoderOptions.BlockFrames = 0` selects up to 8192 frames while respecting the decoded byte limit. A smaller block reduces work on very short ranges. `CompressionLevel` configures Zstandard and the default is 5. Candidate switches let callers measure fixed-point prediction, adaptive linear prediction, cross-track sign prediction, and exact references independently. Archives written with `AdaptivePrediction = false` (`--no-adaptive` in the CLI) use the earlier experimental mode set. Decoding requires only the stored mode and layout. Benchmarks report window sizes because the seek tradeoff depends on the caller's buffering strategy.
+`EncoderOptions.BlockFrames = 0` selects up to 8192 frames while respecting the decoded byte limit. A smaller block reduces work on very short ranges. `CompressionLevel` configures Zstandard and defaults to 5. Separate options control fixed-point prediction, adaptive linear prediction, cross-track sign prediction, and exact references. The decoder uses the mode and layout in the file.
 
 `ReadMetadata` returns both optional payloads. `CopyWithMetadata` copies the audio extent and writes a replacement trailer to an empty destination. The source stays usable if the destination write fails.
 

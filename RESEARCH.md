@@ -1,93 +1,31 @@
-# Float32 multitrack compression research
+# Float32 PCM research
 
-The corpus and complete-size methodology are described in [BENCHMARKS.md](BENCHMARKS.md). A ratio below 100% expresses a reduction from canonical Float32 PCM. Each coding experiment preserves the original 32-bit words.
+JEMA's file-level results are reported against uncompressed Float32 PCM. [Benchmarks](BENCHMARKS.md)
 
-## Float32 structure
+## Sample structure
 
-A normal Float32 word has a sign, an eight-bit biased exponent, and 23 explicit significand bits. Mantissa bits can carry conversion and DSP rounding even in nearly silent passages. Their compressibility depends on provenance. PCM derived directly from a narrower integer representation may have deterministic trailing zeros. Model output and processed recordings can occupy substantially more of the significand space. Per-bit entropy and sign-transition statistics can be reproduced with `research/bit_statistics.py`.
+A normal Float32 word stores sign, a biased exponent, and 23 explicit significand bits. Separating sign from magnitude limits the discontinuity caused by sign crossings. A block-local power-of-two grid lets a predictor operate on an integer representation of the waveform. The exact remainder stream preserves the discarded significand bits and exceptional words.
 
-| Source | Mean marginal entropy of low eight bits | Temporal sign residual | Within-track sign residual | Cross-track sign residual |
-| --- | ---: | ---: | ---: | ---: |
-| stem-01 | 1.00 | 0.80 | 0.72 | 0.87 |
-| stem-03 | 1.00 | 0.78 | 0.71 | 0.87 |
-| stem-06 | 1.00 | 0.64 | 0.60 | 0.74 |
-| uvr-two | 0.89 | 0.28 | 0.36 | 0.47 |
-| album-dsp | 0.85 | 0.13 | 0.13 | 0.19 |
-| recorded-float | 1.00 | 0.21 | 0.28 | 0.28 |
+The low eight significand bits had nearly one bit of marginal entropy per bit position on three sampled six-track sources and on the calibrated field recording. Lower precision in a source can produce more predictable residual bits. This is a marginal statistic based on sampled windows, and the encoder selects modes by the stored payload size.
 
-Each row uses 24 sampled windows across the source. Low-bit entropy is measured separately for each bit position, then averaged. Sign entropy is measured separately for each channel, then averaged. These estimates are in bits per binary symbol and leave higher-order dependencies unmeasured. Stereo coupling reduces this particular sign entropy on the three six-track samples and raises it on the other stereo material.
+## Multitrack coding
 
-The short-term experiments evaluated original words, previous-word XOR, modular differences in float-word order, and differences in the magnitude field after removing the sign. Separating sign from magnitude avoids a large coded discontinuity at sign crossings. Remapping the word alone still scales the numerical difference by the local binade. A power-of-two grid held constant across a block lets second-order prediction model numerical curvature. Recovering the exponent from the core integer and writing the remaining bits separately reduces the cost of that representation on real Float32 material.
+Adaptive prediction uses lane-specific coefficients within an indexed block. A common read window can contain tonal and transient signals, so each lane can choose a predictor and update it at section boundaries. The stored stream combines the predictor table and rearranged residual planes from all tracks. Its side data restores any information removed by the fixed-point projection. [Reversible coding](ALGORITHM.md#adaptive-prediction-for-shared-playback-windows)
 
-On the full `stem-01` sample, the best adaptive word-transform implementation occupied 242,929,452 bytes before the fixed-point candidate was added. The same geometry and compression level with the candidate enabled occupied 226,174,323 bytes, a 6.90% reduction from that implementation. The fixed-point candidate was selected in 794 of 835 blocks. It reduced file size by 5.66–11.54% across the six six-track files relative to the word-transform implementation. The source PCM and raw fallback were identical. The effect includes every byte of the exact side stream.
+## Exact block reuse
 
-The uniform random-word control stored all 32 blocks raw. Its file was 820 bytes larger than its 3,145,728-byte PCM input, exactly the header, track layout, and index overhead.
+An exact reference can represent a copied loop when the complete multitrack block has the same alignment and bit pattern. JEMA checks equality before writing a reference. It uses at most one anchor index lookup and decodes only the anchor payload for that block.
 
-## Joint modeling
-
-The direct cross-track hypothesis is that corresponding channels sometimes share polarity transitions. A previous-track sign predictor can cancel those transitions. Independent predictions retain an alternative when leakage, stereo width, and instrument changes make the cross-track model unhelpful. On `stem-01`, removing the dedicated cross-track sign candidate increased the final file by 470 bytes. The measured joint-file benefit is much greater than that explicit predictor's contribution, consistent with the joint entropy stream and shared framing doing most of the work on this sample.
-
-The same-track predictor uses the first lane as the sign parent. Its transform affects one bit per word. Cross-channel magnitude similarity and sign similarity are distinct. In the exploratory 24-block scan of `stem-01`, a whole-word XOR between left and right reconstructed exactly but increased the best byte-plane compressed size compared with temporal magnitude coding. That negative result is specific to the tested transform and sample.
-
-The independent-track comparator gives each track its own mode selection and equal reset spacing. Shared framing alone saves `24*(tracks-1)` bytes per block plus the separate headers. The remaining file-size difference captures the net effect of shared coding and the cost of using a common recipe. That net measurement includes model overhead and can be negative when independent adaptation wins.
-
-## Long-range structure
-
-The approximate-reference probe searches each selected lane independently for a similar prior waveform at least one second away. It pools a 2048-frame query into 64 mean values, compares unit-normalized feature vectors on a 512-frame grid, checks the four strongest absolute coarse correlations, and searches each location over ±32 frames. A predictive payload is the better of bit-plane Zstandard on a word XOR and on a temporal-residual XOR. It includes an idealized nine-byte pointer and recipe. The comparator selects the smaller of direct bit-plane word coding and direct temporal-residual coding.
-
-| Source | Windows queried | Windows with a smaller reference payload | Best-case byte reduction | Exact shortlisted matches |
-| --- | ---: | ---: | ---: | ---: |
-| stem-01 | 192 | 6 | 0.095% | 0 |
-| stem-03 | 192 | 10 | 0.028% | 0 |
-| stem-05 | 192 | 9 | 0.022% | 0 |
-| stem-06 | 192 | 10 | 0.017% | 0 |
-
-The bass lane of `stem-06` had median best absolute normalized waveform correlation of about 0.99. Its candidate still rarely beat local prediction. Strong similarity in the signal domain can leave different significand bits in the same time interval. The table gives a favorable bound for this particular screened candidate set. It charges no extra reads or anchor materialization and uses a local comparator weaker than the final encoder. It provides no bound on other reference searches, predictors, or datasets.
-
-Exact whole-block references work when the PCM itself repeats at matching boundaries. In the seeded repeated-loop control, 28 of 32 blocks were references. The file shrank from 1,412,764 to 177,313 bytes, an 87.45% reduction. The companion control repeats one track while the second changes. It produced no whole-block references, even though an independent encoder could reuse the repeated stem. Track-granular references would add dependency and index overhead. Whole-block exact references leave the number of decoded payloads per request unchanged.
+A scan of 42,534 track blocks in the six model outputs found no duplicate non-silent track blocks. A deterministic control with one repeated track found 28 non-silent matches among 64 track blocks. Reuse opportunities depend on production workflow, alignment, and sample precision.
 
 ```sh
-python research/controls.py controls
-python research/repetition.py stems.f32le 44100 12 --channel 0 --channel 2 --channel 4 --channel 6 --channel 8 --channel 10
 python research/bit_statistics.py stems.f32le 2,2,2,2,2,2 --archive stems.jema
+python research/controls.py controls
 ```
 
-## Adaptive prediction and joint residuals
+## Related techniques
 
-Predictors fitted separately to each lane reduce error when the mix combines channels with different spectral structures. The 16-window pilot compared precisions 12, 16, 19, and 22, direct byte and bit planes, and a split stream that encodes residual widths before their remaining bits. The largest gains came from the lane-specific predictors. On three six-track sources, precision 19 with linear prediction and within-track coupling beat the split-width alternative and improved on whole-word sign coupling. The complete-file results compare all new predictor metadata and the exact side stream. [Adaptive codec measurements](BENCHMARKS.md#adaptive-predictor-results)
-
-The 512-, 1024-, 2048-, and 8192-frame predictor sweep retained the outer 8192-frame seek boundary. The 2048-frame fit with up to 16 coefficients reduced the sampled raw-relative ratio by 0.56–0.88 percentage points compared with the whole-block 16-coefficient fit at level 5 on the three six-track songs. The encoder evaluates both schedules using the final joint payload size. The 24- and 32-coefficient candidate can improve more periodic segments at higher decoder cost. A separate 12-window probe estimated that predicting each temporal residual from a prior value 32–1024 frames away would save 0.06–0.40 percentage points on these six-track inputs at order 16, with the pointer and gain charged. It adds another prediction dependency inside each block.
-
-### Cross-track coding comparisons
-
-These comparisons start from the same adaptive core residuals. They charge layout selectors, substream sizing, or predictor coefficients as appropriate. They leave the exact Float32 side stream unchanged.
-
-| Joint technique | Sampled result |
-| --- | --- |
-| One plane-major stream across all tracks | Saved 0.42–0.46 percentage points of raw PCM against independently compressed track residual streams on `stem-01` and `stem-02`. |
-| Interleave tracks in time tiles | The strongest fixed tile ordering increased size by about 0.04–0.05 points on those samples. The best variant changes by block. |
-| Split dense low residual planes from sparse high planes | Best fixed split saved 0.02–0.06 points. Picking the best observed split or ordering for each sampled block, with a selector byte, saved at most 0.13–0.18 points on the tested matrix. |
-| Same-window prediction across tracks | Choosing up to four earlier-track inputs across ±2 sample offsets, with a coefficient per input, saved 0.04 and 0.11 points on held-out `stem-01` and `stem-03` blocks. The fit was local to 2048-frame sections. |
-| Shared trained Zstandard dictionary | An 8 KiB dictionary trained on separate blocks saved 0.06–0.10 points of evaluated PCM before charging its file-level size. Larger dictionaries performed worse in this probe. |
-
-Separate instruments share more useful statistical structure in the residual planes than near-exact sample trajectories in these excerpts. The adopted format combines the planes and coefficient tables in one Zstandard frame. It leaves an instrument's first lane independent of other tracks in the predictor, which keeps block reconstruction local and avoids a song-wide dictionary dependency.
-
-A separate scan hashed each complete 8192-frame track block and confirmed candidate matches with a byte comparison, including identical layouts on different tracks. Across the six model outputs, none of the 42,534 track blocks duplicated an earlier non-silent block. Seventeen duplicate blocks in `stem-02` were silent. The four-track studio DSP input had 2176 duplicate silent blocks out of 5624 and no non-silent duplicates. The seeded control with one repeating track produced 28 non-silent matches out of 64 track blocks. Track-granular references therefore have a clear use with exact digital loops. The measured model outputs give little room for that form of reuse.
-
-An additional 64-window probe omitted completely zero lanes from the joint core and side stream and charged a lane mask. The sampled studio DSP material could save 0.11 percentage points with this layout. The three sampled separator outputs had no adaptive blocks eligible for a saving. The exact zero data in the studio material also compressed well in the ordinary joint stream.
-
-The original stereo mix was available for two songs. Summing the six stems in binary64 and rounding once to Float32 matched 0.00023% and 0.51710% of original sample words. The RMS residual was 4.82% and 1.30% of mix RMS, respectively. A mixture anchor would need to charge both the stored mix and an exact correction. Perceptual agreement or a low RMS error alone cannot supply the bit-exact information needed to derive a missing track.
-
-```sh
-python research/joint_residuals.py stems.jema --blocks 48
-python research/joint_residuals.py stems.jema --blocks 72 --dictionary
-```
-
-## Prior work and implementation boundary
-
-- Gorilla uses predecessor XOR and codes the shape of its nonzero span for time-series values. The previous-word XOR mode here is evaluated with PCM-specific layout and an independent block boundary. [Gorilla paper](https://pages.cs.wisc.edu/~yxy/cs839-s20/papers/gorilla.pdf)
-- Bitshuffle transposes bits from adjacent values to expose similar lanes to a general compressor. JEMA applies the transform to lane-major predictor outputs and defines its precise layout in the format. [Masui et al.](https://arxiv.org/abs/1503.00638)
-- MPEG-4 ALS literature describes floating audio decomposed into an integer signal and exact residual under an approximate common factor. The fixed grid described here uses a block-local power of two and reconstructs exponent and residual length from the signed core. Publication of the related method limits any broad claim of novelty for exact integer-core decomposition. [Harada et al.](https://www.kecl.ntt.co.jp/people/moriya.takehiro/publications.html)
-- WavPack and OptimFROG publicly document Float32 lossless modes. WavPack is measured as an executable black box. FLAC's integer sample model makes it a reference for framing and random access. [WavPack documentation](https://www.wavpack.com/wavpack_doc.html) · [OptimFROG IEEE Float](https://losslessaudio.org/IEEE_Float.php) · [FLAC specification](https://www.rfc-editor.org/rfc/rfc9639.html)
-- Pcodec provides an independent baseline for typed float sequences. OpenZL illustrates how structural splits and homogeneous streams can improve general-purpose compression. JEMA uses Zstandard for its interchangeable entropy layer. [Pcodec paper](https://arxiv.org/abs/2502.06112) · [OpenZL technical overview](https://engineering.fb.com/2025/10/06/developer-tools/openzl-open-source-format-aware-compression-framework/) · [Zstandard specification](https://www.rfc-editor.org/rfc/rfc8878.html)
-- Linear prediction and cross-channel residual subtraction also appear in prior lossless audio codecs. JEMA applies these techniques to exact Float32 decomposition, allows lane and section adaptation within one seek block, and assesses coupling using the complete joint payload. [FLAC specification](https://www.rfc-editor.org/rfc/rfc9639.html) · [MPEG-4 ALS multichannel prediction](https://www.ntt-review.jp/archive/ntttechnical.php?contents=ntr200712sp2.html)
+- Predecessor XOR represents local changes in a floating-point word. [Gorilla paper](https://pages.cs.wisc.edu/~yxy/cs839-s20/papers/gorilla.pdf)
+- Bit-plane transposition groups bits at the same significance level. [Bitshuffle paper](https://arxiv.org/abs/1503.00638)
+- Lossless floating-point audio research describes splitting a signal into an integer sequence and exact residual. [Harada et al.](https://www.kecl.ntt.co.jp/people/moriya.takehiro/publications.html)
+- Linear predictors and cross-channel residual coding motivate alternative representations of sample words. [FLAC specification](https://www.rfc-editor.org/rfc/rfc9639.html) · [MPEG-4 ALS multichannel prediction](https://www.ntt-review.jp/archive/ntttechnical.php?contents=ntr200712sp2.html)
