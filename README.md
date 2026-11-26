@@ -63,26 +63,19 @@ The logical structure of a JEMA file consists of:
 - Optional metadata
 - Encoded audio data
 
-The binary format specification and coding rules are currently under research.
+The [experimental format specification](SPECIFICATION.md) defines the binary layout and decoding rules. [Reversible coding](ALGORITHM.md) describes the predictors, joint coding, and bounded references.
 
 ## Implementation
 
-The JEMA reference implementation is intended to provide a standalone codec library for encoding, decoding, random access, and metadata operations on `.jema` files.
+The .NET 8 reference library provides encoding, frame-range decoding, and independent metadata access. It accepts interleaved little-endian Float32 PCM and preserves every sample bit pattern. The [developer guide](DEV.md) covers the library interface and build.
 
 ## Usage
 
-The conceptual data flow of JEMA:
+The command-line tool accepts interleaved raw PCM. The channel list declares one channel count per track. This example encodes two stereo tracks and one mono track at 44.1 kHz, then restores 2048 synchronized frames starting at frame 44100.
 
-```
-Multitrack Float32 PCM
-          |
-       Encoder
-          |
-      JEMA File
-          |
-       Decoder
-          |
-Multitrack Float32 PCM
+```sh
+dotnet run --project src/Jema.Tool -c Release -- encode stems.f32le stems.jema 44100 2,2,1
+dotnet run --project src/Jema.Tool -c Release -- decode stems.jema region.f32le 44100 2048
 ```
 
 The encoder accepts time-aligned floating-point PCM data. The decoder accesses corresponding multitrack samples through a starting sample frame and a requested frame count.
@@ -102,7 +95,7 @@ Performance evaluation covers the following metrics:
 
 Evaluation focuses on the compression gains of joint multitrack encoding over independent track encoding, as well as the relationship between compression efficiency and decoding performance.
 
-Benchmark results are not yet available.
+The [benchmark report](BENCHMARKS.md) records measured size, bit-exact reconstruction, and access performance. [Research notes](RESEARCH.md) document individual coding hypotheses and their evidence.
 
 ## Scope
 

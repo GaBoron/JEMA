@@ -7,7 +7,7 @@ dotnet build src/Jema.Tool -c Release
 dotnet build research/Bench -c Release
 ```
 
-The tool project builds the `Jema` library automatically. Dependencies are [System.IO.Hashing](https://www.nuget.org/packages/System.IO.Hashing/8.0.0) for CRC-32 and encoder-side hashing, and [ZstdSharp.Port](https://www.nuget.org/packages/ZstdSharp.Port/0.8.8) for Zstandard. Both packages declare the MIT license. Their package distributions include upstream notices.
+The tool project builds the `Jema` library automatically. It uses System.IO.Hashing for CRC-32 and encoder-side hashing, and ZstdSharp.Port for Zstandard. Both packages declare the MIT license. [System.IO.Hashing](https://www.nuget.org/packages/System.IO.Hashing/8.0.0) · [ZstdSharp.Port](https://www.nuget.org/packages/ZstdSharp.Port/0.8.8)
 
 ## Library usage
 
