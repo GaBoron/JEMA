@@ -36,6 +36,8 @@ The caller controls stream ownership and must serialize access to each reader an
 
 `EncoderOptions.DeepPrediction` (`--deep-prediction`) adds an encoding candidate that can use 24 or 32 temporal coefficients per lane. It retains the standard candidates and chooses the shortest stored block. Higher-order blocks consume more decode CPU. The option is intended for offline encoding with a decode budget established on the target playback hardware.
 
+`EncoderOptions.WorkerCount` (`--workers=N`) permits 1–8 blocks to be compressed concurrently. It defaults to one. For larger blocks, the encoder reduces concurrency so staged PCM and staged payloads each occupy at most 4 MiB. Each worker has its own codec state. Input, exact-reference selection, and output remain ordered, so the same settings and PCM produce the same archive across worker counts. Use [the encoding-time measurements](BENCHMARKS.md#encoding-time-budget) to compare profiles on the target machine.
+
 ## Project entry points
 
 - `src/Jema` owns frame geometry, reversible transforms, payload selection, checked index access, and opaque metadata.

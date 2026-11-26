@@ -32,6 +32,8 @@ public sealed record EncoderOptions
     /// <summary>Zero selects 8192 frames, reduced if necessary to fit the decoded byte limit.</summary>
     public int BlockFrames { get; init; }
     public int CompressionLevel { get; init; } = 5;
+    /// <summary>Maximum number of blocks compressed concurrently. The encoder may use fewer for large blocks.</summary>
+    public int WorkerCount { get; init; } = 1;
     public bool FixedPointPrediction { get; init; } = true;
     public bool AdaptivePrediction { get; init; } = true;
     /// <summary>Also evaluate predictors up to order 32 in adaptive sections.</summary>

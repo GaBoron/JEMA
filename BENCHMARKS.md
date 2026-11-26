@@ -64,12 +64,24 @@ The deep predictor option tries an additional sectional candidate with up to 32 
 | stem-06 | 8192 / 5 | Deep | 281,397,441 | 0.74% | 49.444 ms | 65.250 ms |
 | stem-06 | 16384 / 13 | Deep | 280,484,108 | 1.07% | 46.911 ms | 85.797 ms |
 
-The most compact measured `stem-06` archive took 339 seconds to encode and recovered every input byte. In four back-to-back runs of 300 identical two-second requests on that archive, scalar P99 was 82.501–89.452 ms and AVX2 P99 was 48.104–50.405 ms. The AVX2 maxima were 72.336 and 73.684 ms in those runs. The ordinary encoder settings retain the shorter encoding time and the smaller seek block. The high settings give the smallest measured archive on this source and stay within the local P99 screening budget on AVX2. These values are from offline reads. In-host playback and scheduling under concurrent application load remain unmeasured.
+The most compact measured `stem-06` archive recovered every input byte. In four back-to-back runs of 300 identical two-second requests on that archive, scalar P99 was 82.501–89.452 ms and AVX2 P99 was 48.104–50.405 ms. The AVX2 maxima were 72.336 and 73.684 ms in those runs. The high settings give the smallest measured archive on this source and stay within the local P99 screening budget on AVX2. These values are from offline reads. In-host playback and scheduling under concurrent application load remain unmeasured.
 
 ```sh
-dotnet src/Jema.Tool/bin/Release/net8.0/Jema.Tool.dll encode stems.f32le compact.jema 44100 2,2,2,2,2,2 16384 13 --deep-prediction
+dotnet src/Jema.Tool/bin/Release/net8.0/Jema.Tool.dll encode stems.f32le compact.jema 44100 2,2,2,2,2,2 16384 13 --deep-prediction --workers=4
 dotnet research/Bench/bin/Release/net8.0/Bench.dll jema stems.f32le compact.jema 500 4096 88200
 ```
+
+### Encoding time budget
+
+The encoding target is 60 elapsed seconds per minute of input audio. The earlier single-worker default encoded the six full-length files in 16.14–18.26 seconds per minute. The four-worker high-compression configuration uses 16384-frame blocks, Zstandard level 13, and deep prediction. The timed command includes process startup, PCM reads, compression, and archive writes. The separate verification pass is outside the encode interval.
+
+| ID | Audio duration | One-worker encode | Four-worker encode | Four-worker seconds per minute | Archive bytes | Unbuffered two-second decode P99 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| stem-03 | 223.45 s | — | 88.91 s | 23.87 | 308,377,931 | 48.20 ms |
+| stem-04 | 320.80 s | — | 129.52 s | 24.22 | 424,239,301 | 43.24 ms |
+| stem-06 | 227.16 s | 338.96 s | 85.94 s | 22.70 | 280,484,108 | 46.91 ms |
+
+All three full-length encodes passed a complete PCM byte comparison. Both `stem-06` archives match byte for byte, so its earlier decode measurement also applies to the parallel encode. One-, four-, and eight-worker test archives also matched across within-batch and earlier-batch exact references, the no-reference mode, and a short final block. Clock time depends on available CPU capacity, disk I/O, and concurrent work.
 
 ## Corpus
 
