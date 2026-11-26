@@ -52,6 +52,37 @@ python research/repetition.py stems.f32le 44100 12 --channel 0 --channel 2 --cha
 python research/bit_statistics.py stems.f32le 2,2,2,2,2,2 --archive stems.jema
 ```
 
+## Adaptive prediction and joint residuals
+
+Predictors fitted separately to each lane reduce error when the mix combines channels with different spectral structures. The 16-window pilot compared precisions 12, 16, 19, and 22, direct byte and bit planes, and a split stream that encodes residual widths before their remaining bits. The largest gains came from the lane-specific predictors. On three six-track sources, precision 19 with linear prediction and within-track coupling beat the split-width alternative and improved on whole-word sign coupling. The complete-file results compare all new predictor metadata and the exact side stream. [Adaptive codec measurements](BENCHMARKS.md#adaptive-predictor-results)
+
+The 512-, 1024-, 2048-, and 8192-frame predictor sweep retained the outer 8192-frame seek boundary. The 2048-frame fit with up to 16 coefficients reduced the sampled raw-relative ratio by 0.56–0.88 percentage points compared with the whole-block 16-coefficient fit at level 5 on the three six-track songs. The encoder evaluates both schedules using the final joint payload size. The 24- and 32-coefficient candidate can improve more periodic segments at higher decoder cost. A separate 12-window probe estimated that predicting each temporal residual from a prior value 32–1024 frames away would save 0.06–0.40 percentage points on these six-track inputs at order 16, with the pointer and gain charged. It adds another prediction dependency inside each block.
+
+### Cross-track coding comparisons
+
+These comparisons start from the same adaptive core residuals. They charge layout selectors, substream sizing, or predictor coefficients as appropriate. They leave the exact Float32 side stream unchanged.
+
+| Joint technique | Sampled result |
+| --- | --- |
+| One plane-major stream across all tracks | Saved 0.42–0.46 percentage points of raw PCM against independently compressed track residual streams on `stem-01` and `stem-02`. |
+| Interleave tracks in time tiles | The strongest fixed tile ordering increased size by about 0.04–0.05 points on those samples. The best variant changes by block. |
+| Split dense low residual planes from sparse high planes | Best fixed split saved 0.02–0.06 points. Picking the best observed split or ordering for each sampled block, with a selector byte, saved at most 0.13–0.18 points on the tested matrix. |
+| Same-window prediction across tracks | Choosing up to four earlier-track inputs across ±2 sample offsets, with a coefficient per input, saved 0.04 and 0.11 points on held-out `stem-01` and `stem-03` blocks. The fit was local to 2048-frame sections. |
+| Shared trained Zstandard dictionary | An 8 KiB dictionary trained on separate blocks saved 0.06–0.10 points of evaluated PCM before charging its file-level size. Larger dictionaries performed worse in this probe. |
+
+Separate instruments share more useful statistical structure in the residual planes than near-exact sample trajectories in these excerpts. The adopted format combines the planes and coefficient tables in one Zstandard frame. It leaves an instrument's first lane independent of other tracks in the predictor, which keeps block reconstruction local and avoids a song-wide dictionary dependency.
+
+A separate scan hashed each complete 8192-frame track block and confirmed candidate matches with a byte comparison, including identical layouts on different tracks. Across the six model outputs, none of the 42,534 track blocks duplicated an earlier non-silent block. Seventeen duplicate blocks in `stem-02` were silent. The four-track studio DSP input had 2176 duplicate silent blocks out of 5624 and no non-silent duplicates. The seeded control with one repeating track produced 28 non-silent matches out of 64 track blocks. Track-granular references therefore have a clear use with exact digital loops. The measured model outputs give little room for that form of reuse.
+
+An additional 64-window probe omitted completely zero lanes from the joint core and side stream and charged a lane mask. The sampled studio DSP material could save 0.11 percentage points with this layout. The three sampled separator outputs had no adaptive blocks eligible for a saving. The exact zero data in the studio material also compressed well in the ordinary joint stream.
+
+The original stereo mix was available for two songs. Summing the six stems in binary64 and rounding once to Float32 matched 0.00023% and 0.51710% of original sample words. The RMS residual was 4.82% and 1.30% of mix RMS, respectively. A mixture anchor would need to charge both the stored mix and an exact correction. Perceptual agreement or a low RMS error alone cannot supply the bit-exact information needed to derive a missing track.
+
+```sh
+python research/joint_residuals.py stems.jema --blocks 48
+python research/joint_residuals.py stems.jema --blocks 72 --dictionary
+```
+
 ## Prior work and implementation boundary
 
 - Gorilla uses predecessor XOR and codes the shape of its nonzero span for time-series values. The previous-word XOR mode here is evaluated with PCM-specific layout and an independent block boundary. [Gorilla paper](https://pages.cs.wisc.edu/~yxy/cs839-s20/papers/gorilla.pdf)
@@ -59,3 +90,4 @@ python research/bit_statistics.py stems.f32le 2,2,2,2,2,2 --archive stems.jema
 - MPEG-4 ALS literature describes floating audio decomposed into an integer signal and exact residual under an approximate common factor. The fixed grid described here uses a block-local power of two and reconstructs exponent and residual length from the signed core. Publication of the related method limits any broad claim of novelty for exact integer-core decomposition. [Harada et al.](https://www.kecl.ntt.co.jp/people/moriya.takehiro/publications.html)
 - WavPack and OptimFROG publicly document Float32 lossless modes. WavPack is measured as an executable black box. FLAC's integer sample model makes it a reference for framing and random access. [WavPack documentation](https://www.wavpack.com/wavpack_doc.html) · [OptimFROG IEEE Float](https://losslessaudio.org/IEEE_Float.php) · [FLAC specification](https://www.rfc-editor.org/rfc/rfc9639.html)
 - Pcodec provides an independent baseline for typed float sequences. OpenZL illustrates how structural splits and homogeneous streams can improve general-purpose compression. JEMA uses Zstandard for its interchangeable entropy layer. [Pcodec paper](https://arxiv.org/abs/2502.06112) · [OpenZL technical overview](https://engineering.fb.com/2025/10/06/developer-tools/openzl-open-source-format-aware-compression-framework/) · [Zstandard specification](https://www.rfc-editor.org/rfc/rfc8878.html)
+- Linear prediction and cross-channel residual subtraction also appear in prior lossless audio codecs. JEMA applies these techniques to exact Float32 decomposition, allows lane and section adaptation within one seek block, and assesses coupling using the complete joint payload. [FLAC specification](https://www.rfc-editor.org/rfc/rfc9639.html) · [MPEG-4 ALS multichannel prediction](https://www.ntt-review.jp/archive/ntttechnical.php?contents=ntr200712sp2.html)

@@ -3,16 +3,19 @@ using System.Text.Json;
 using Jema;
 
 if (args is not [var mode, var rawPath, var archivePath, .. var settings]
-    || mode is not ("raw" or "jema") || settings.Length > 2)
+    || mode is not ("raw" or "jema") || settings.Length > 3)
 {
-    Console.Error.WriteLine("Bench raw|jema PCM.f32le AUDIO.jema [REQUESTS [UNBUFFERED_ALIGNMENT]]");
+    Console.Error.WriteLine("Bench raw|jema PCM.f32le AUDIO.jema [REQUESTS [UNBUFFERED_ALIGNMENT [RANDOM_WINDOW_FRAMES]]]");
     return 2;
 }
 
 int requests = settings.Length >= 1 ? int.Parse(settings[0]) : 1000;
-int alignment = settings.Length == 2 ? int.Parse(settings[1]) : 0;
+int alignment = settings.Length >= 2 ? int.Parse(settings[1]) : 0;
+int? windowFrames = settings.Length == 3 ? int.Parse(settings[2]) : null;
 if (requests < 1)
     throw new ArgumentOutOfRangeException(nameof(requests));
+if (windowFrames is <= 0)
+    throw new ArgumentOutOfRangeException(nameof(windowFrames));
 
 using var headerFile = OpenBuffered(archivePath);
 using var header = new JemaReader(headerFile);
@@ -44,7 +47,9 @@ return 0;
 List<Sample> Run()
 {
     int rate = header.Layout.SampleRate;
-    int[] windows = [1, 512, Math.Max(1, Math.Min(rate / 3, 40_000)), (int)Math.Min(rate * 2L, 192_000)];
+    int[] windows = windowFrames.HasValue
+        ? [windowFrames.Value]
+        : [1, 512, Math.Max(1, Math.Min(rate / 3, 40_000)), (int)Math.Min(rate * 2L, 192_000)];
     var results = new List<Sample>();
     foreach (int window in windows.Distinct())
     {
@@ -54,6 +59,9 @@ List<Sample> Run()
             .Select(_ => random.NextInt64(header.Frames - frames + 1)).ToArray();
         results.Add(Measure("random", frames, starts, reopen: false));
     }
+
+    if (windowFrames.HasValue)
+        return results;
 
     int firstFrames = (int)Math.Min(header.Frames, rate);
     results.Add(Measure("open-and-first", firstFrames, new long[Math.Min(requests, 128)], reopen: true));

@@ -38,7 +38,7 @@ A mix window often spans vocals, tonal accompaniment, and percussion at the same
 
 Within each track, additional channels can subtract a scaled version of the first channel's temporal residual. This targets stereo content that shares waveform detail after independently predictable motion has been removed. The first channel supplies the residual for every coupled channel. Their modeled residual bit lengths determine the encoder's gain candidates. The Zstandard core carries the chosen predictor table and the combined lane residual planes. The original Float32 sample words remain recoverable after the inverse transforms.
 
-The linear predictor's history crosses section boundaries inside a block. A seek can still decode any block independently because its history before the first frame is defined as zero. The decoder makes a bounded integer multiply-and-add computation using the stored coefficients. [Predictor experiments](RESEARCH.md#adaptive-prediction-and-joint-residuals)
+The linear predictor's history crosses section boundaries inside a block. A seek can still decode any block independently because its history before the first frame is defined as zero. The decoder makes a bounded integer multiply-and-add computation using the stored coefficients. The AVX2 path sums signed 64-bit products and applies the same floor operation as the scalar path. [Predictor experiments](RESEARCH.md#adaptive-prediction-and-joint-residuals)
 
 ## Long-range exact reuse
 

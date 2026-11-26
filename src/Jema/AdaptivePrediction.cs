@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace Jema;
 
@@ -144,11 +146,59 @@ internal sealed class AdaptivePrediction(PcmLayout layout)
                         coefficients[i] = BinaryPrimitives.ReadInt16LittleEndian(table[offset..]);
                         offset += sizeof(short);
                     }
-                    var weights = coefficients[..order];
-                    for (int i = start; i < end; i++)
-                        lane[i] += Estimate(lane, i, weights);
+                    RestoreLinear(lane, start, end, coefficients[..order]);
                 }
             }
+        }
+    }
+
+    private static void RestoreLinear(Span<int> lane, int start, int end, ReadOnlySpan<short> weights)
+    {
+        int order = weights.Length;
+        if (!Avx2.IsSupported || order < Vector256<int>.Count)
+        {
+            for (int i = start; i < end; i++)
+                lane[i] += Estimate(lane, i, weights);
+            return;
+        }
+
+        int vectorStart = Math.Min(end, Math.Max(start, order));
+        for (int i = start; i < vectorStart; i++)
+            lane[i] += Estimate(lane, i, weights);
+        if (vectorStart == end)
+            return;
+
+        // History loads run from oldest to newest. Multiply the even and odd int32 lanes
+        // separately so every product and the accumulated sum stay signed 64-bit.
+        const int width = 8;
+        Span<int> reversed = stackalloc int[MaxOrder];
+        for (int i = 0; i < order; i++)
+            reversed[i] = weights[order - 1 - i];
+        int groups = order / width;
+        Span<Vector256<int>> even = stackalloc Vector256<int>[MaxOrder / width];
+        Span<Vector256<int>> odd = stackalloc Vector256<int>[MaxOrder / width];
+        ref int coefficients = ref MemoryMarshal.GetReference(reversed);
+        for (int g = 0; g < groups; g++)
+        {
+            even[g] = Vector256.LoadUnsafe(ref coefficients, (nuint)(g * width));
+            odd[g] = Avx2.ShiftRightLogical(even[g].AsUInt64(), 32).AsInt32();
+        }
+
+        ref int data = ref MemoryMarshal.GetReference(lane);
+        for (int i = vectorStart; i < end; i++)
+        {
+            int origin = i - order;
+            var sum = Vector256<long>.Zero;
+            for (int g = 0; g < groups; g++)
+            {
+                var history = Vector256.LoadUnsafe(ref data, (nuint)(origin + g * width));
+                var oddHistory = Avx2.ShiftRightLogical(history.AsUInt64(), 32).AsInt32();
+                sum = Avx2.Add(sum, Avx2.Add(Avx2.Multiply(history, even[g]), Avx2.Multiply(oddHistory, odd[g])));
+            }
+            long prediction = Vector256.Sum(sum);
+            for (int j = groups * width; j < order; j++)
+                prediction += (long)reversed[j] * lane[origin + j];
+            lane[i] += (int)(prediction >> 12);
         }
     }
 

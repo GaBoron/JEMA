@@ -30,7 +30,7 @@ Rather than compressing each track independently, JEMA investigates the compress
 
 JEMA operates on the original binary representation of Float32 PCM, preserving sample precision, channel layout, and temporal alignment across all tracks.
 
-Joint encoding allows coding dependencies between tracks and channels, rather than treating each audio stream as an independent compression unit.
+The encoder fits a reversible predictor per channel, can couple channel residuals within a track, and stores the residual bit planes across tracks in a shared entropy stream. Predictor changes inside a block follow local audio structure without changing its seek boundary.
 
 ### Random Access
 
