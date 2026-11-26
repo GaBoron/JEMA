@@ -12,7 +12,7 @@ internal sealed class FixedPointTransform(PcmLayout layout, int blockBytes)
     public byte[] Exponents { get; } = new byte[layout.Channels];
     public Span<byte> Side => side;
 
-    public int Predict(ReadOnlySpan<byte> pcm, Span<uint> words)
+    public int Decompose(ReadOnlySpan<byte> pcm, Span<uint> words)
     {
         int frames = pcm.Length / layout.BytesPerFrame;
         int remainderBits = 0;
@@ -51,8 +51,6 @@ internal sealed class FixedPointTransform(PcmLayout layout, int blockBytes)
         int exception = remainderBytes;
         for (int lane = 0; lane < layout.Channels; lane++)
         {
-            uint previous = 0;
-            uint previousDelta = 0;
             var integers = words.Slice(lane * frames, frames);
             for (int t = 0, offset = lane * 4; t < frames; t++, offset += layout.BytesPerFrame)
             {
@@ -68,7 +66,22 @@ internal sealed class FixedPointTransform(PcmLayout layout, int blockBytes)
                     int shift = Exponents[lane] - ((int)(sample >> 23) & 255) + (23 - Precision);
                     writer.Write(sample & ((1u << shift) - 1), shift);
                 }
+            }
+        }
+        writer.Finish();
+        return remainderBytes + 4 * exceptionCount;
+    }
 
+    public static void PredictSecondDifference(Span<uint> words, int frames)
+    {
+        for (int start = 0; start < words.Length; start += frames)
+        {
+            uint previous = 0;
+            uint previousDelta = 0;
+            var integers = words.Slice(start, frames);
+            for (int t = 0; t < frames; t++)
+            {
+                uint integer = integers[t];
                 uint delta = integer - previous;
                 uint residual = delta - previousDelta;
                 integers[t] = (residual << 1) ^ (0u - (residual >> 31));
@@ -76,31 +89,36 @@ internal sealed class FixedPointTransform(PcmLayout layout, int blockBytes)
                 previousDelta = delta;
             }
         }
-        writer.Finish();
-        return remainderBytes + 4 * exceptionCount;
     }
 
-    public (int RemainderBits, int SideBytes) Unpredict(Span<uint> words, int frames)
+    public static void RestoreSecondDifference(Span<uint> words, int frames)
+    {
+        for (int start = 0; start < words.Length; start += frames)
+        {
+            uint previous = 0;
+            uint delta = 0;
+            var integers = words.Slice(start, frames);
+            for (int t = 0; t < frames; t++)
+            {
+                uint folded = integers[t];
+                delta += (folded >> 1) ^ (0u - (folded & 1));
+                previous += delta;
+                integers[t] = previous;
+            }
+        }
+    }
+
+    public (int RemainderBits, int SideBytes) MeasureSide(ReadOnlySpan<uint> words, int frames)
     {
         int remainderBits = 0;
         int exceptions = 0;
         for (int lane = 0; lane < layout.Channels; lane++)
         {
-            uint previous = 0;
-            uint previousDelta = 0;
             int scale = Exponents[lane] - Precision;
             if (Exponents[lane] == 255)
                 throw new InvalidDataException("Invalid fixed-point scale exponent.");
-            var integers = words.Slice(lane * frames, frames);
-            for (int t = 0; t < frames; t++)
+            foreach (uint integer in words.Slice(lane * frames, frames))
             {
-                uint folded = integers[t];
-                uint difference = (folded >> 1) ^ (0u - (folded & 1));
-                uint delta = previousDelta + difference;
-                uint integer = previous + delta;
-                integers[t] = integer;
-                previous = integer;
-                previousDelta = delta;
                 if (integer == 0)
                 {
                     exceptions++;

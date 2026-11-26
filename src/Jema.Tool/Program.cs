@@ -41,7 +41,7 @@ try
             break;
         default:
             Console.Error.WriteLine("""
-                jema encode INPUT.f32le OUTPUT.jema RATE CHANNELS[,CHANNELS...] [BLOCK_FRAMES] [LEVEL] [--no-fixed] [--no-cross] [--no-references]
+                jema encode INPUT.f32le OUTPUT.jema RATE CHANNELS[,CHANNELS...] [BLOCK_FRAMES] [LEVEL] [--deep-prediction] [--no-fixed] [--no-adaptive] [--no-cross] [--no-references]
                 jema decode INPUT.jema OUTPUT.f32le [START_FRAME [FRAME_COUNT]]
                 jema info INPUT.jema
                 jema verify INPUT.jema ORIGINAL.f32le
@@ -83,6 +83,8 @@ static void Encode(string source, string destination, string rate, string tracks
         {
             "--no-cross" => settings with { CrossTrackSignPrediction = false },
             "--no-fixed" => settings with { FixedPointPrediction = false },
+            "--no-adaptive" => settings with { AdaptivePrediction = false },
+            "--deep-prediction" => settings with { DeepPrediction = true },
             "--no-references" => settings with { ExactBlockReferences = false },
             _ when numeric++ == 0 => settings with { BlockFrames = int.Parse(argument, CultureInfo.InvariantCulture) },
             _ when numeric == 2 => settings with { CompressionLevel = int.Parse(argument, CultureInfo.InvariantCulture) },

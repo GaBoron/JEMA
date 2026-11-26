@@ -33,6 +33,9 @@ public sealed record EncoderOptions
     public int BlockFrames { get; init; }
     public int CompressionLevel { get; init; } = 5;
     public bool FixedPointPrediction { get; init; } = true;
+    public bool AdaptivePrediction { get; init; } = true;
+    /// <summary>Also evaluate predictors up to order 32 in adaptive sections.</summary>
+    public bool DeepPrediction { get; init; }
     public bool CrossTrackSignPrediction { get; init; } = true;
     public bool ExactBlockReferences { get; init; } = true;
 }

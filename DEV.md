@@ -30,9 +30,11 @@ DecodeWork work = reader.ReadFrames(0, bytes);
 
 The caller controls stream ownership and must serialize access to each reader and its source. Use separate readers and streams for concurrent access. An encode destination starts empty at file offset zero. It needs read access when exact block references are enabled. Create output in a separate file before replacing stored audio to keep failures from altering an existing file. An encode consumes precisely the declared PCM range. A failed decode may have written part of its destination span.
 
-`EncoderOptions.BlockFrames = 0` selects up to 8192 frames while respecting the decoded byte limit. A smaller block reduces work on very short ranges. `CompressionLevel` configures Zstandard and the default is 5. Candidate switches let callers measure fixed-point prediction, cross-track sign prediction, and exact references independently. Decoding requires only the stored mode and layout. Benchmarks report window sizes because the seek tradeoff depends on the caller's buffering strategy.
+`EncoderOptions.BlockFrames = 0` selects up to 8192 frames while respecting the decoded byte limit. A smaller block reduces work on very short ranges. `CompressionLevel` configures Zstandard and the default is 5. Candidate switches let callers measure fixed-point prediction, adaptive linear prediction, cross-track sign prediction, and exact references independently. Archives written with `AdaptivePrediction = false` (`--no-adaptive` in the CLI) use the earlier experimental mode set. Decoding requires only the stored mode and layout. Benchmarks report window sizes because the seek tradeoff depends on the caller's buffering strategy.
 
 `ReadMetadata` returns both optional payloads. `CopyWithMetadata` copies the audio extent and writes a replacement trailer to an empty destination. The source stays usable if the destination write fails.
+
+`EncoderOptions.DeepPrediction` (`--deep-prediction`) adds an encoding candidate that can use 24 or 32 temporal coefficients per lane. It retains the standard candidates and chooses the shortest stored block. Higher-order blocks consume more decode CPU. The option is intended for offline encoding with a decode budget established on the target playback hardware.
 
 ## Project entry points
 

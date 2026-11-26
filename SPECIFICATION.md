@@ -62,8 +62,9 @@ For a request `[first, first+count)`, reject ranges outside `[0,total_frames]`. 
 | 10–11 | Zstandard | First-order magnitude with within-track sign prediction | Byte / bit |
 | 12–13 | Zstandard | First-order magnitude with cross-track sign prediction | Byte / bit |
 | 14–15 | Fixed-point core and side stream | Second-order signed integer | Byte / bit on the core |
+| 16–17 | Fixed-point core and side stream | Section-adaptive linear prediction and within-track residual coupling | Byte / bit on the core |
 
-Modes 16–254 are reserved. Every Zstandard stream uses the [Zstandard format](https://www.rfc-editor.org/rfc/rfc8878.html). Writers emit one normal Zstandard frame per stream without a dictionary or prefix. A reader must support that representation and may accept equivalent dictionary-free framing. Modes 1–13 expand to exactly the canonical PCM size of the block. Mode 1 yields interleaved canonical PCM directly.
+Modes 18–254 are reserved. Every Zstandard stream uses the [Zstandard format](https://www.rfc-editor.org/rfc/rfc8878.html). Writers emit one normal Zstandard frame per stream without a dictionary or prefix. A reader must support that representation and may accept equivalent dictionary-free framing. Modes 1–13 expand to exactly the canonical PCM size of the block. Mode 1 yields interleaved canonical PCM directly.
 
 ### Prediction
 
@@ -89,11 +90,21 @@ Let `C` be the total channel count. The fixed-point payload starts with a 4-byte
 
 For each normal word with biased exponent `e`, form the 24-bit significand `M = 0x800000 OR fraction` and let `q = E - e + 4`. If `q < 24`, the signed core integer `a` has magnitude `M >> q` and the sample's original sign. Store the low `q` bits of `M` in the side stream. For words with `q >= 24` and for all subnormal, zero, or nonfinite words, use core integer zero and store the original word as an exception.
 
-For each lane, adopt the 32-bit two's-complement bit patterns of the signed core integers. Take two successive modular differences in the ring modulo `2^32`, initializing both previous states to zero. Fold each second difference `r` with `(r << 1) XOR -(r >> 31)`, where the shift right is logical and the result is reduced modulo `2^32`. Rearrange these words as above and Zstandard-compress them. The decompressed rearranged core is exactly the canonical PCM size.
+For modes 14–15, adopt the 32-bit two's-complement bit patterns of the signed core integers. Take two successive modular differences in the ring modulo `2^32`, initializing both previous states to zero. Fold each second difference `r` with `(r << 1) XOR -(r >> 31)`, where the shift right is logical and the result is reduced modulo `2^32`. Rearrange these words as above and Zstandard-compress them. The decompressed rearranged core is exactly the canonical PCM size.
 
-Unfold with `(z >> 1) XOR -(z AND 1)` and integrate twice modulo `2^32`. After interpreting the reconstructed integer as signed, handle zero as an exception. For each nonzero value, let `h = floor(log2(abs(a)))`. Require `h <= 19` and `e = E - 19 + h` in 1–254. Read `23-h` low significand bits from the side stream and append them to `abs(a)`. Restore the binary32 exponent `e`, the fraction below the implicit leading bit, and the sign of `a`.
+In modes 14–15, unfold with `(z >> 1) XOR -(z AND 1)` and integrate twice modulo `2^32`. Modes 16–17 recover the same fixed-point integers using the predictor table below. After interpreting the reconstructed integer as signed, handle zero as an exception. For each nonzero value, let `h = floor(log2(abs(a)))`. Require `h <= 19` and `e = E - 19 + h` in 1–254. Read `23-h` low significand bits from the side stream and append them to `abs(a)`. Restore the binary32 exponent `e`, the fraction below the implicit leading bit, and the sign of `a`.
 
 The uncompressed side stream begins with all low-significand fields in lane order, with frames in chronological order within each lane. Each field is written least significant bit first into the next available bits of the stream, starting at bit 0 of the first byte. Pad the final byte with zero bits. Then append all exception words in lane order as little-endian words, with frames in chronological order. The uncompressed side length is `ceil(sum(23-h)/8) + 4*exception_count`. Derive it from the decoded core. A stored side stream exactly that size is raw. A shorter one is a Zstandard stream and must inflate to that size. A larger stream or nonzero pad bits are invalid.
+
+### Adaptive fixed-point modes
+
+For modes 16–17, the Zstandard core expands to the predictor table followed by the rearranged residual words. The final `4*C*F` bytes are the residual words, where `F` is the actual frame count of the block. Bound the preceding table to `1+C*(2+65*ceil(F/2048))` bytes. The side stream and outer payload prefix follow the fixed-point rules above.
+
+The first table byte is 0 for one section of `F` frames or 1 for consecutive sections of up to 2048 frames. For each lane in declared order, read its signed 16-bit gain and then one predictor record per section. Each record contains an order byte and that many signed 16-bit coefficients. An order is 0, 2, 4, 8, 12, 16, 24, or 32. The first lane in each track has gain zero. Other gains are in -512 through 512. Reject missing or extra table bytes and unsupported selectors, gains, and orders.
+
+Within a lane, use signed 32-bit interpretations of values from the ring modulo `2^32`. For order zero use the prediction `2*a[t-1]-a[t-2]`. For nonzero order `p`, the prediction is `floor(sum(c[j]*a[t-1-j], j=0...p-1)/4096)`, using an exact signed accumulator. Samples before frame zero of the block are zero. Sections share the preceding samples of the same block. The temporal residual is the core integer minus the prediction modulo `2^32`.
+
+For a lane with gain `g`, subtract `floor(g*r_first[t]/256)` from its temporal residual modulo `2^32`. Here `r_first[t]` is the signed temporal residual of the first lane of the same track. Fold the resulting residuals by the same zigzag rule as modes 14–15, then rearrange by byte (mode 16) or bit (mode 17). To invert, unfold first, restore within-track coupled residuals, then add each temporal prediction to its residual in chronological order. Treat every floor as rounding toward negative infinity.
 
 ## Optional metadata
 

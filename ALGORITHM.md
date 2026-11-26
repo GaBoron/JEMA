@@ -30,7 +30,15 @@ The magnitude-word predictor uses a different numerical step in each binade. A s
 
 The fixed grid lets second-order prediction follow the actual waveform through sign and binade crossings. The high planes of the signed integer residual become sparse and are coded jointly across tracks. The paired side stream retains all original bits and can be stored raw when its entropy is high. Splitting the core and side also prevents low-significance bits from diluting compression of the predicted waveform. The measured cost includes scales, framing, side bits, exception words, and the index.
 
-Variable bit counts depend on the restored integer core, so the decoder reads and reconstructs that core first. All reconstruction uses bounded integer arithmetic. The core and side occupy at most one decoded block each in temporary buffers.
+Variable bit counts depend on the restored integer core, so the decoder reads and reconstructs that core first. All reconstruction uses bounded integer arithmetic. The core and side each occupy at most one decoded block in temporary buffers, plus a bounded predictor table on the core.
+
+### Adaptive prediction for shared playback windows
+
+A mix window often spans vocals, tonal accompaniment, and percussion at the same time. Each lane can fit its own linear predictor, with a coefficient change every 2048 frames when that improves the stored size. The encoder fits regularized source covariance, quantizes predictor coefficients to signed fixed-point values, and evaluates the stored result. It also measures a whole-block fit and the fixed second-difference representation using the same exact side stream.
+
+Within each track, additional channels can subtract a scaled version of the first channel's temporal residual. This targets stereo content that shares waveform detail after independently predictable motion has been removed. The first channel supplies the residual for every coupled channel. Their modeled residual bit lengths determine the encoder's gain candidates. The Zstandard core carries the chosen predictor table and the combined lane residual planes. The original Float32 sample words remain recoverable after the inverse transforms.
+
+The linear predictor's history crosses section boundaries inside a block. A seek can still decode any block independently because its history before the first frame is defined as zero. The decoder makes a bounded integer multiply-and-add computation using the stored coefficients. [Predictor experiments](RESEARCH.md#adaptive-prediction-and-joint-residuals)
 
 ## Long-range exact reuse
 
